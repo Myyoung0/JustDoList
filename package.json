@@ -1,0 +1,35 @@
+{
+  "name": "mycalendar",
+  "version": "0.1.0",
+  "private": true,
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "npm run stop:dev-port && concurrently -k \"npm:dev:web\" \"npm:dev:electron\"",
+    "dev:desktop": "npm run dev",
+    "dev:web": "vite",
+    "dev:electron": "wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .",
+    "stop:dev-port": "kill-port 5173 || true",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "active-win": "^8.1.0",
+    "googleapis": "^144.0.0",
+    "imapflow": "^1.1.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^35.0.0",
+    "kill-port": "^2.0.1",
+    "typescript": "^5.8.2",
+    "vite": "^5.4.14",
+    "wait-on": "^8.0.2"
+  }
+}
