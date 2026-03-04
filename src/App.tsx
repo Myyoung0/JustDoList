@@ -322,6 +322,23 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!window.overlayBridge) return;
+
+    const timer = window.setInterval(async () => {
+      try {
+        const state = await window.overlayBridge!.getState();
+        setOverlayState((prev) =>
+          prev.visible === state.visible ? prev : state,
+        );
+      } catch {
+        // noop
+      }
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
     if (!window.mailBridge) {
       return;
     }
@@ -1492,7 +1509,7 @@ function OverlayWidget() {
 
   useEffect(() => {
     const prevTitle = document.title;
-    document.title = "";
+    document.title = "\u200B";
     document.documentElement.classList.add("overlay-mode");
     document.body.classList.add("overlay-mode");
     return () => {
@@ -1595,12 +1612,32 @@ function OverlayWidget() {
     saveFocusRuntime({ startedAtMs: null });
   }
 
+  async function hideOverlayFromWidget() {
+    if (!window.overlayBridge) return;
+    try {
+      await window.overlayBridge.hide();
+    } catch {
+      // noop
+    }
+  }
+
   return (
     <main className="overlay-root">
       <section className="overlay-panel">
         <div className="overlay-head">
           <strong>Today</strong>
-          <span>{todayDate}</span>
+          <div className="overlay-head-right">
+            <span>{todayDate}</span>
+            <button
+              type="button"
+              className="overlay-close-btn"
+              aria-label="Hide overlay"
+              title="Hide overlay"
+              onClick={() => void hideOverlayFromWidget()}
+            >
+              ×
+            </button>
+          </div>
         </div>
         <p className="overlay-time">{formatDuration(focusElapsedSec)}</p>
         <p className="overlay-sub">

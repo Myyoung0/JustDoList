@@ -4,6 +4,31 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MYcalendar</title>
+    <style>
+      html,
+      body,
+      #root {
+        height: 100%;
+      }
+      html,
+      body {
+        margin: 0;
+        background: transparent;
+      }
+      html.overlay-preload,
+      html.overlay-preload body,
+      html.overlay-preload #root {
+        background: transparent !important;
+      }
+    </style>
+    <script>
+      (function () {
+        if (location.search.indexOf("overlay=1") !== -1) {
+          document.documentElement.classList.add("overlay-preload");
+          document.title = "\u200B";
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

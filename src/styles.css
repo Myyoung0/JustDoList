@@ -860,6 +860,33 @@ html.overlay-mode #root {
   margin-top: 2px;
 }
 
+.overlay-head-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  -webkit-app-region: no-drag;
+}
+
+.overlay-close-btn {
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgba(231, 239, 255, 0.55);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.28);
+  color: #eef4ff;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.overlay-close-btn:hover {
+  background: rgba(0, 0, 0, 0.45);
+}
+
 .overlay-time {
   margin: 0;
   font-size: 32px;

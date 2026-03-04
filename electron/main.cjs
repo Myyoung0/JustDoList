@@ -41,7 +41,9 @@ function startOverlayHotspotLoop() {
       point.x <= bounds.x + bounds.width &&
       point.y >= bounds.y &&
       point.y <= bounds.y + bounds.height;
-    const inDragZone = inside && point.y <= bounds.y + 220;
+
+    // Keep default click-through; allow interaction on top area + timer controls.
+    const inDragZone = inside && point.y <= bounds.y + 160;
     const shouldIgnore = !inDragZone;
 
     if (overlayWindow._mycalIgnoreApplied === shouldIgnore) {
@@ -50,7 +52,7 @@ function startOverlayHotspotLoop() {
 
     overlayWindow.setIgnoreMouseEvents(shouldIgnore, { forward: true });
     overlayWindow._mycalIgnoreApplied = shouldIgnore;
-  }, 60);
+  }, 70);
 }
 
 function getConfigPath() {
@@ -739,7 +741,7 @@ function createOverlayWindow() {
   }
 
   overlayWindow = new BrowserWindow({
-    title: '',
+    title: ' ',
     width: 340,
     height: 190,
     x: 30,
@@ -754,7 +756,7 @@ function createOverlayWindow() {
     minWidth: 160,
     minHeight: 110,
     movable: true,
-    focusable: true,
+    focusable: false,
     hasShadow: false,
     autoHideMenuBar: true,
     webPreferences: {
@@ -775,6 +777,14 @@ function createOverlayWindow() {
       query: { overlay: '1' }
     });
   }
+
+  overlayWindow.webContents.on('page-title-updated', (event) => {
+    // Prevent Chromium from replacing empty title with filename like "index.html".
+    event.preventDefault();
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      overlayWindow.setTitle(' ');
+    }
+  });
 
   overlayWindow.on('closed', () => {
     stopOverlayHotspotLoop();
