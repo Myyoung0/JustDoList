@@ -285,6 +285,8 @@ html.overlay-mode #root {
 
 .calendar-card {
   grid-area: calendar;
+  display: flex;
+  flex-direction: column;
 }
 
 .mail-card {
@@ -336,7 +338,7 @@ html.overlay-mode #root {
 }
 
 .focus-timer {
-  margin-top: var(--sp-4);
+  margin-top: auto;
   padding-top: var(--sp-3);
   border-top: 1px solid var(--line);
 }
@@ -354,85 +356,24 @@ html.overlay-mode #root {
   gap: var(--sp-2);
 }
 
-.usage-panel {
+.countdown-panel {
   margin-top: var(--sp-3);
   padding-top: var(--sp-3);
   border-top: 1px dashed var(--line);
 }
 
-.usage-list {
-  margin: var(--sp-2) 0 0;
-  padding-left: 0;
-  list-style: none;
-}
-
-.usage-list li {
-  display: block;
-  padding: 6px 8px;
-  border-radius: 8px;
-  background: rgba(20, 30, 47, calc(var(--ui-alpha) * 0.35));
-  margin-bottom: 6px;
-}
-
-.usage-row-head {
+.countdown-presets {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
   gap: var(--sp-2);
+  flex-wrap: wrap;
 }
 
-.usage-app-left {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.usage-logo {
-  width: 18px;
-  height: 18px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 13px;
-  flex: 0 0 auto;
-}
-
-.usage-logo-img {
-  width: 18px;
-  height: 18px;
-  border-radius: 4px;
-  object-fit: contain;
-  flex: 0 0 auto;
-}
-
-.usage-app-name {
-  font-size: var(--fs-12);
-  color: #b7c8e8;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 170px;
-}
-
-.usage-bar {
-  margin-top: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: rgba(136, 158, 198, 0.2);
-  overflow: hidden;
-}
-
-.usage-bar-fill {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #6e8fc6 0%, #94afd8 100%);
-}
-
-.usage-list strong {
-  color: #d9e6ff;
-  font-size: var(--fs-13);
+.countdown-readout {
+  margin: var(--sp-2) 0;
+  font-size: var(--fs-18);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #dbe8ff;
 }
 
 .icon-btn {
@@ -675,28 +616,99 @@ html.overlay-mode #root {
   font-size: var(--fs-12);
 }
 
-.mail-row {
+.mail-list {
+  list-style: none;
+  margin: var(--sp-2) 0 0;
+  padding: 0;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-2);
+  flex-direction: column;
+  gap: 8px;
 }
 
-.mail-row span {
+.mail-empty {
+  margin: 0;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px dashed rgba(122, 140, 176, 0.45);
+  background: rgba(16, 24, 38, 0.38);
+  color: #8fa2c6;
+  text-align: center;
+  font-size: var(--fs-13);
+}
+
+.mail-item {
+  margin: 0;
+  border: 1px solid rgba(52, 71, 104, 0.8);
+  border-radius: 10px;
+  background: rgba(10, 18, 30, calc(var(--ui-alpha) * 0.62));
+  box-shadow: inset 0 1px 0 rgba(230, 239, 255, 0.06);
+}
+
+.mail-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: 10px 12px;
+}
+
+.mail-main {
   flex: 1;
   min-width: 0;
 }
 
-.mail-row .action {
+.mail-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mail-account-tag {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(96, 125, 177, 0.62);
+  background: rgba(39, 57, 89, 0.64);
+  color: #d7e5ff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.mail-sender {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--fs-13);
+  color: #bdd0f2;
+}
+
+.mail-time {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: #8ba1c8;
+  font-size: var(--fs-12);
+}
+
+.mail-subject {
+  margin: 6px 0 0;
+  color: #e7efff;
+  font-size: var(--fs-14);
+  line-height: 1.35;
+  word-break: break-word;
 }
 
 .mail-check {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   accent-color: #5d95f0;
   cursor: pointer;
   flex: 0 0 auto;
+  margin-top: 4px;
 }
 
 .mail-settings {
@@ -827,7 +839,7 @@ html.overlay-mode #root {
 .overlay-root {
   height: 100%;
   width: 100%;
-  padding: 28px 12px 10px;
+  padding: 22px 4px 4px;
   background: transparent;
   display: flex;
   align-items: stretch;
@@ -844,10 +856,11 @@ html.overlay-mode #root {
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
-  padding: 2px;
+  padding: 1px 1px 4px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 3px;
+  min-height: 100%;
 }
 
 .overlay-head {
@@ -855,26 +868,26 @@ html.overlay-mode #root {
   justify-content: space-between;
   align-items: center;
   color: #e4edff;
-  font-size: var(--fs-13);
+  font-size: 10px;
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.72);
-  margin-top: 2px;
+  margin-top: 0;
 }
 
 .overlay-head-right {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   -webkit-app-region: no-drag;
 }
 
 .overlay-close-btn {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   border: 1px solid rgba(231, 239, 255, 0.55);
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.28);
   color: #eef4ff;
-  font-size: 13px;
+  font-size: 10px;
   line-height: 1;
   cursor: pointer;
   padding: 0;
@@ -889,7 +902,7 @@ html.overlay-mode #root {
 
 .overlay-time {
   margin: 0;
-  font-size: 32px;
+  font-size: 18px;
   font-weight: 700;
   letter-spacing: 0.03em;
   color: #f6f9ff;
@@ -898,7 +911,7 @@ html.overlay-mode #root {
 
 .overlay-sub {
   margin: 0;
-  font-size: var(--fs-12);
+  font-size: 10px;
   color: #cad8f2;
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.72);
 }
@@ -906,18 +919,63 @@ html.overlay-mode #root {
 .overlay-timer-controls {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   -webkit-app-region: no-drag;
 }
 
+.overlay-countdown {
+  margin-top: 1px;
+  padding-top: 2px;
+  border-top: 1px solid rgba(226, 237, 255, 0.18);
+  -webkit-app-region: no-drag;
+}
+
+.overlay-countdown-time {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #eef4ff;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.72);
+}
+
+.overlay-countdown-presets {
+  margin-top: 2px;
+  display: flex;
+  gap: 3px;
+  flex-wrap: wrap;
+}
+
+.overlay-mini-btn {
+  border: 1px solid rgba(233, 241, 255, 0.35);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.22);
+  color: #e6efff;
+  font-size: 9px;
+  padding: 0 6px;
+  cursor: pointer;
+}
+
+.overlay-mini-btn.active {
+  border-color: rgba(154, 193, 255, 0.82);
+  background: rgba(66, 97, 151, 0.42);
+}
+
+.overlay-countdown-controls {
+  margin-top: 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .overlay-timer-btn {
-  width: 24px;
-  height: 24px;
+  width: 18px;
+  height: 18px;
   border: 1px solid rgba(235, 243, 255, 0.55);
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.2);
   color: #eef4ff;
-  font-size: 13px;
+  font-size: 10px;
   line-height: 1;
   cursor: pointer;
   display: inline-flex;

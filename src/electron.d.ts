@@ -57,9 +57,6 @@ declare global {
       syncPull: () => Promise<{ ok: boolean; tasks: unknown[] }>;
       deleteEvent: (payload: { eventId: string }) => Promise<{ ok: boolean }>;
     };
-    usageBridge?: {
-      getActiveApp: () => Promise<{ app: string; owner: string; title: string; exePath: string; iconDataUrl: string }>;
-    };
     overlayBridge?: {
       show: () => Promise<{ visible: boolean }>;
       hide: () => Promise<{ visible: boolean }>;

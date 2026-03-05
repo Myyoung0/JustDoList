@@ -56,8 +56,6 @@ type GCalConfig = {
   connected: boolean;
 };
 
-type AppUsageMap = Record<string, number>;
-
 const DEFAULT_GCAL_CONFIG: GCalConfig = {
   clientId: "",
   clientSecret: "",
@@ -68,9 +66,16 @@ const DEFAULT_GCAL_CONFIG: GCalConfig = {
 const STORAGE_KEY = "mycalendar.milestone2.tasks";
 const FOCUS_STORAGE_KEY = "mycalendar.focus.daily";
 const FOCUS_RUNTIME_STORAGE_KEY = "mycalendar.focus.runtime";
-const APP_USAGE_STORAGE_KEY = "mycalendar.app.usage.daily";
+const COUNTDOWN_STORAGE_KEY = "mycalendar.countdown.runtime";
+const COUNTDOWN_ALARM_STORAGE_KEY = "mycalendar.countdown.alarm.ringing";
 const BG_IMAGE_STORAGE_KEY = "mycalendar.ui.bgImage";
 const BG_OPACITY_STORAGE_KEY = "mycalendar.ui.bgOpacity";
+const COUNTDOWN_PRESETS = [
+  { label: "5s", seconds: 5 },
+  { label: "10m", seconds: 10 * 60 },
+  { label: "30m", seconds: 30 * 60 },
+  { label: "1h", seconds: 60 * 60 },
+];
 const today = dateOnly(new Date());
 
 const DEFAULT_MAIL_CONFIG: MailConfig = {
@@ -114,6 +119,7 @@ function App() {
   if (isOverlayMode) {
     return <OverlayWidget />;
   }
+  const initialCountdown = loadCountdownState();
 
   const [tasks, setTasks] = useState<Task[]>(() => loadTasks());
   const [newTaskTitle, setNewTaskTitle] = useState("");
@@ -136,10 +142,18 @@ function App() {
     loadFocusStartedAtMs(),
   );
   const [, setFocusTick] = useState(0);
-  const [appUsageByName, setAppUsageByName] = useState<AppUsageMap>(() =>
-    loadTodayAppUsage(),
+  const [countdownDurationSec, setCountdownDurationSec] = useState<number>(
+    initialCountdown.durationSec,
   );
-  const [appIconByName, setAppIconByName] = useState<Record<string, string>>({});
+  const [countdownPausedSec, setCountdownPausedSec] = useState<number>(
+    initialCountdown.pausedSec,
+  );
+  const [countdownEndAtMs, setCountdownEndAtMs] = useState<number | null>(
+    initialCountdown.endAtMs,
+  );
+  const [, setCountdownTick] = useState(0);
+  const [isCountdownAlarmRinging, setIsCountdownAlarmRinging] =
+    useState<boolean>(() => loadCountdownAlarmRinging());
 
   const [mailConfig, setMailConfig] = useState<MailConfig>(DEFAULT_MAIL_CONFIG);
   const [isMailSettingsOpen, setIsMailSettingsOpen] = useState(false);
@@ -170,6 +184,10 @@ function App() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const notifiedMailIdsRef = useRef<Set<string>>(new Set());
   const initialMailFetchRef = useRef(false);
+  const countdownFinishedRef = useRef(false);
+  const countdownAlarmAudioRef = useRef<HTMLAudioElement | null>(null);
+  const countdownAlarmCtxRef = useRef<AudioContext | null>(null);
+  const countdownAlarmTimeoutRef = useRef<number | null>(null);
 
   const calendarCells = buildCalendar(viewYear, viewMonth);
 
@@ -189,14 +207,29 @@ function App() {
 
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
-      if (
-        event.key !== FOCUS_RUNTIME_STORAGE_KEY &&
-        event.key !== FOCUS_STORAGE_KEY
-      ) {
+      if (!event.key) {
         return;
       }
-      setFocusStartedAt(loadFocusStartedAtMs());
-      setFocusAccumulatedSec(loadTodayFocusSeconds());
+      if (
+        event.key === FOCUS_RUNTIME_STORAGE_KEY ||
+        event.key === FOCUS_STORAGE_KEY
+      ) {
+        setFocusStartedAt(loadFocusStartedAtMs());
+        setFocusAccumulatedSec(loadTodayFocusSeconds());
+      }
+      if (event.key === COUNTDOWN_STORAGE_KEY) {
+        const next = loadCountdownState();
+        setCountdownDurationSec(next.durationSec);
+        setCountdownPausedSec(next.pausedSec);
+        setCountdownEndAtMs(next.endAtMs);
+      }
+      if (event.key === COUNTDOWN_ALARM_STORAGE_KEY) {
+        const ringing = loadCountdownAlarmRinging();
+        setIsCountdownAlarmRinging(ringing);
+        if (!ringing) {
+          stopCountdownAlarm();
+        }
+      }
     };
 
     window.addEventListener("storage", onStorage);
@@ -208,6 +241,9 @@ function App() {
     (focusStartedAt
       ? Math.max(0, Math.floor((Date.now() - focusStartedAt) / 1000))
       : 0);
+  const countdownRemainingSec = countdownEndAtMs
+    ? Math.max(0, Math.ceil((countdownEndAtMs - Date.now()) / 1000))
+    : countdownPausedSec;
 
   useEffect(() => {
     // Persist only paused/accumulated seconds.
@@ -217,39 +253,55 @@ function App() {
   }, [focusAccumulatedSec]);
 
   useEffect(() => {
-    saveTodayAppUsage(appUsageByName);
-  }, [appUsageByName]);
-
-  useEffect(() => {
-    if (!window.usageBridge) {
+    if (!countdownEndAtMs) {
       return;
     }
-
-    const sampleIntervalSec = 10;
-
-    const sample = async () => {
-      try {
-        const active = await window.usageBridge!.getActiveApp();
-        const name = String(active?.app || "").trim() || "Unknown";
-        setAppUsageByName((prev) => ({
-          ...prev,
-          [name]: (prev[name] || 0) + sampleIntervalSec,
-        }));
-        if (active?.iconDataUrl) {
-          setAppIconByName((prev) => {
-            if (prev[name] === active.iconDataUrl) return prev;
-            return { ...prev, [name]: active.iconDataUrl };
-          });
-        }
-      } catch {
-        // silent: usage tracking should not break UI
-      }
-    };
-
-    void sample();
-    const timer = window.setInterval(sample, sampleIntervalSec * 1000);
+    const timer = window.setInterval(() => {
+      setCountdownTick((prev) => prev + 1);
+    }, 250);
     return () => window.clearInterval(timer);
+  }, [countdownEndAtMs]);
+
+  useEffect(() => {
+    if (!countdownEndAtMs || countdownRemainingSec > 0) {
+      return;
+    }
+    setCountdownEndAtMs(null);
+    setCountdownPausedSec(0);
+    if (!countdownFinishedRef.current) {
+      countdownFinishedRef.current = true;
+      void playCountdownAlarm();
+    }
+  }, [countdownEndAtMs, countdownRemainingSec]);
+
+  useEffect(() => {
+    saveCountdownState({
+      durationSec: countdownDurationSec,
+      pausedSec: countdownPausedSec,
+      endAtMs: countdownEndAtMs,
+    });
+  }, [countdownDurationSec, countdownPausedSec, countdownEndAtMs]);
+
+  useEffect(() => {
+    return () => {
+      stopCountdownAlarm();
+    };
   }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const shouldRing = loadCountdownAlarmRinging();
+      if (
+        !shouldRing &&
+        (isCountdownAlarmRinging ||
+          countdownAlarmAudioRef.current !== null ||
+          countdownAlarmCtxRef.current !== null)
+      ) {
+        stopCountdownAlarm();
+      }
+    }, 300);
+    return () => window.clearInterval(timer);
+  }, [isCountdownAlarmRinging]);
 
   useEffect(() => {
     if (backgroundImage) {
@@ -466,16 +518,6 @@ function App() {
     [selectedTasks],
   );
 
-  const appUsageRows = useMemo(
-    () =>
-      Object.entries(appUsageByName)
-        .filter(([, sec]) => sec > 0)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 6),
-    [appUsageByName],
-  );
-  const usageMaxSec = appUsageRows.length > 0 ? Math.max(...appUsageRows.map(([, sec]) => sec)) : 1;
-
   function addTask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const title = newTaskTitle.trim();
@@ -614,6 +656,143 @@ function App() {
     setFocusTick(0);
     saveTodayFocusSeconds(0);
     saveFocusRuntime({ startedAtMs: null });
+  }
+
+  function addCountdownPreset(seconds: number) {
+    stopCountdownAlarm();
+    countdownFinishedRef.current = false;
+    if (countdownEndAtMs) {
+      const remaining = Math.max(
+        0,
+        Math.ceil((countdownEndAtMs - Date.now()) / 1000),
+      );
+      const nextTotal = remaining + seconds;
+      setCountdownDurationSec(nextTotal);
+      setCountdownPausedSec(nextTotal);
+      setCountdownEndAtMs(Date.now() + nextTotal * 1000);
+      return;
+    }
+    const base = Math.max(0, countdownPausedSec);
+    const nextTotal = base + seconds;
+    setCountdownDurationSec(nextTotal);
+    setCountdownPausedSec(nextTotal);
+    setCountdownEndAtMs(null);
+  }
+
+  function startCountdownTimer() {
+    stopCountdownAlarm();
+    if (countdownEndAtMs) {
+      return;
+    }
+    const baseSec = countdownPausedSec > 0 ? countdownPausedSec : countdownDurationSec;
+    countdownFinishedRef.current = false;
+    setCountdownPausedSec(baseSec);
+    setCountdownEndAtMs(Date.now() + baseSec * 1000);
+  }
+
+  function pauseCountdownTimer() {
+    if (!countdownEndAtMs) {
+      return;
+    }
+    setCountdownPausedSec(countdownRemainingSec);
+    setCountdownEndAtMs(null);
+  }
+
+  function resetCountdownTimer() {
+    stopCountdownAlarm();
+    countdownFinishedRef.current = false;
+    setCountdownEndAtMs(null);
+    setCountdownPausedSec(0);
+    setCountdownDurationSec(0);
+  }
+
+  function stopCountdownAlarm() {
+    if (countdownAlarmTimeoutRef.current) {
+      window.clearTimeout(countdownAlarmTimeoutRef.current);
+      countdownAlarmTimeoutRef.current = null;
+    }
+
+    if (countdownAlarmAudioRef.current) {
+      countdownAlarmAudioRef.current.pause();
+      countdownAlarmAudioRef.current.currentTime = 0;
+      countdownAlarmAudioRef.current.onended = null;
+      countdownAlarmAudioRef.current = null;
+    }
+
+    if (countdownAlarmCtxRef.current) {
+      const ctx = countdownAlarmCtxRef.current;
+      countdownAlarmCtxRef.current = null;
+      void ctx.close();
+    }
+
+    setIsCountdownAlarmRinging(false);
+    saveCountdownAlarmRinging(false);
+  }
+
+  async function playCountdownAlarm(): Promise<void> {
+    stopCountdownAlarm();
+
+    // Uses /ocean-meme.mp3 when present in the app root/public path.
+    // Falls back to a short synthesized beep sequence.
+    try {
+      const audio = new Audio("/ocean-meme.mp3");
+      audio.volume = 1;
+      audio.currentTime = 0;
+      audio.onended = () => {
+        if (countdownAlarmAudioRef.current === audio) {
+          countdownAlarmAudioRef.current = null;
+        }
+        setIsCountdownAlarmRinging(false);
+        saveCountdownAlarmRinging(false);
+      };
+      countdownAlarmAudioRef.current = audio;
+      setIsCountdownAlarmRinging(true);
+      saveCountdownAlarmRinging(true);
+      await audio.play();
+      return;
+    } catch {
+      // fallback below
+    }
+
+    const AudioCtx =
+      window.AudioContext ||
+      (window as Window & { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    if (!AudioCtx) {
+      return;
+    }
+
+    const ctx = new AudioCtx();
+    countdownAlarmCtxRef.current = ctx;
+    setIsCountdownAlarmRinging(true);
+    saveCountdownAlarmRinging(true);
+
+    const now = ctx.currentTime;
+    const pulseStarts = [0, 0.22, 0.44];
+
+    pulseStarts.forEach((offset) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "square";
+      osc.frequency.setValueAtTime(880, now + offset);
+      gain.gain.setValueAtTime(0.0001, now + offset);
+      gain.gain.exponentialRampToValueAtTime(0.45, now + offset + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.16);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now + offset);
+      osc.stop(now + offset + 0.17);
+    });
+
+    countdownAlarmTimeoutRef.current = window.setTimeout(() => {
+      if (countdownAlarmCtxRef.current === ctx) {
+        countdownAlarmCtxRef.current = null;
+        void ctx.close();
+      }
+      countdownAlarmTimeoutRef.current = null;
+      setIsCountdownAlarmRinging(false);
+      saveCountdownAlarmRinging(false);
+    }, 900);
   }
 
   function handleBackgroundFile(event: ChangeEvent<HTMLInputElement>) {
@@ -1075,46 +1254,66 @@ function App() {
                 &#8635;
               </button>
             </div>
-
-            <div className="usage-panel">
-              <p className="label">Today App Usage</p>
-              <ul className="usage-list">
-                {appUsageRows.length === 0 ? <li>No app activity yet</li> : null}
-                {appUsageRows.map(([appName, seconds]) => (
-                  <li key={appName}>
-                    <div className="usage-row-head">
-                      <span className="usage-app-left">
-                        {appIconByName[appName] ? (
-                          <img
-                            className="usage-logo-img"
-                            src={appIconByName[appName]}
-                            alt=""
-                            aria-hidden="true"
-                          />
-                        ) : (
-                          <span className="usage-logo" aria-hidden="true">
-                            {getAppLogo(appName)}
-                          </span>
-                        )}
-                        <span className="usage-app-name">{appName}</span>
-                      </span>
-                      <strong>{formatUsageMinutes(seconds)}</strong>
-                    </div>
-                    <div className="usage-bar">
-                      <span
-                        className="usage-bar-fill"
-                        style={{
-                          width: `${Math.max(
-                            8,
-                            Math.round((seconds / usageMaxSec) * 100),
-                          )}%`,
-                        }}
-                      />
-                    </div>
-                  </li>
+            <div className="countdown-panel">
+              <p className="label">Quick Countdown</p>
+              <div className="countdown-presets">
+                {COUNTDOWN_PRESETS.map((preset) => (
+                  <button
+                    key={preset.seconds}
+                    type="button"
+                    className={`action subtle ${countdownDurationSec === preset.seconds ? "secondary" : "ghost"}`}
+                    onClick={() => addCountdownPreset(preset.seconds)}
+                  >
+                    {preset.label}
+                  </button>
                 ))}
-              </ul>
+              </div>
+              <p className="countdown-readout">{formatDuration(countdownRemainingSec)}</p>
+              <div className="timer-controls">
+                {countdownEndAtMs ? (
+                  <button
+                    className="action primary icon-btn"
+                    type="button"
+                    onClick={pauseCountdownTimer}
+                    aria-label="Pause countdown"
+                    title="Pause countdown"
+                  >
+                    &#10074;&#10074;
+                  </button>
+                ) : (
+                  <button
+                    className="action primary icon-btn"
+                    type="button"
+                    onClick={startCountdownTimer}
+                    aria-label="Start countdown"
+                    title="Start countdown"
+                  >
+                    &#9654;
+                  </button>
+                )}
+                <button
+                  className="action ghost icon-btn"
+                  type="button"
+                  onClick={resetCountdownTimer}
+                  aria-label="Reset countdown"
+                  title="Reset countdown"
+                >
+                  &#8635;
+                </button>
+                {isCountdownAlarmRinging ? (
+                  <button
+                    className="action secondary"
+                    type="button"
+                    onClick={stopCountdownAlarm}
+                    aria-label="Stop alarm"
+                    title="Stop alarm"
+                  >
+                    Stop
+                  </button>
+                ) : null}
+              </div>
             </div>
+
           </div>
         </article>
 
@@ -1263,14 +1462,35 @@ function App() {
           ) : null}
 
           <p className="label">Unread ({mailItems.length})</p>
-          <ul className="task-list">
-            {mailItems.length === 0 ? <li>No unread mails</li> : null}
+          <ul className="mail-list">
+            {mailItems.length === 0 ? (
+              <li className="mail-empty">No unread mails</li>
+            ) : null}
             {mailItems.slice(0, 12).map((mail) => (
-              <li key={mail.id}>
+              <li key={mail.id} className="mail-item">
                 <div className="mail-row">
-                  <span>
-                    [{mail.accountName}] {mail.sender} - {mail.subject}
-                  </span>
+                  <div className="mail-main">
+                    <div className="mail-meta">
+                      <span className="mail-account-tag">{mail.accountName}</span>
+                      <span className="mail-sender">{mail.sender}</span>
+                      <span className="mail-time">
+                        {(() => {
+                          const d = new Date(mail.date);
+                          const now = new Date();
+                          const sameYear = d.getFullYear() === now.getFullYear();
+                          return d.toLocaleString("ko-KR", {
+                            ...(sameYear ? {} : { year: "2-digit" }),
+                            month: "2-digit",
+                            day: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            hour12: false,
+                          });
+                        })()}
+                      </span>
+                    </div>
+                    <p className="mail-subject">{mail.subject}</p>
+                  </div>
                   <input
                     className="mail-check"
                     type="checkbox"
@@ -1489,6 +1709,7 @@ function App() {
 }
 
 function OverlayWidget() {
+  const initialCountdown = loadCountdownState();
   const [focusAccumulatedSec, setFocusAccumulatedSec] = useState<number>(() =>
     loadTodayFocusSeconds(),
   );
@@ -1496,6 +1717,25 @@ function OverlayWidget() {
     loadFocusStartedAtMs(),
   );
   const [, setTick] = useState(0);
+  const [countdownDurationSec, setCountdownDurationSec] = useState<number>(
+    initialCountdown.durationSec,
+  );
+  const [countdownPausedSec, setCountdownPausedSec] = useState<number>(
+    initialCountdown.pausedSec,
+  );
+  const [countdownEndAtMs, setCountdownEndAtMs] = useState<number | null>(
+    initialCountdown.endAtMs,
+  );
+  const [, setCountdownTick] = useState(0);
+  const [isCountdownAlarmRinging, setIsCountdownAlarmRinging] =
+    useState<boolean>(() => loadCountdownAlarmRinging());
+  const countdownRemainingSec = countdownEndAtMs
+    ? Math.max(0, Math.ceil((countdownEndAtMs - Date.now()) / 1000))
+    : countdownPausedSec;
+  const overlayCountdownFinishedRef = useRef(false);
+  const overlayAlarmAudioRef = useRef<HTMLAudioElement | null>(null);
+  const overlayAlarmCtxRef = useRef<AudioContext | null>(null);
+  const overlayAlarmTimeoutRef = useRef<number | null>(null);
   const resizeRef = useRef<{
     active: boolean;
     startX: number;
@@ -1526,6 +1766,11 @@ function OverlayWidget() {
     const sync = () => {
       setFocusAccumulatedSec(loadTodayFocusSeconds());
       setFocusStartedAt(loadFocusStartedAtMs());
+      const nextCountdown = loadCountdownState();
+      setCountdownDurationSec(nextCountdown.durationSec);
+      setCountdownPausedSec(nextCountdown.pausedSec);
+      setCountdownEndAtMs(nextCountdown.endAtMs);
+      setIsCountdownAlarmRinging(loadCountdownAlarmRinging());
     };
     sync();
     const poll = window.setInterval(sync, 3000);
@@ -1542,19 +1787,77 @@ function OverlayWidget() {
 
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
-      if (
-        event.key !== FOCUS_RUNTIME_STORAGE_KEY &&
-        event.key !== FOCUS_STORAGE_KEY
-      ) {
+      if (!event.key) {
         return;
       }
-      setFocusStartedAt(loadFocusStartedAtMs());
-      setFocusAccumulatedSec(loadTodayFocusSeconds());
+      if (
+        event.key === FOCUS_RUNTIME_STORAGE_KEY ||
+        event.key === FOCUS_STORAGE_KEY
+      ) {
+        setFocusStartedAt(loadFocusStartedAtMs());
+        setFocusAccumulatedSec(loadTodayFocusSeconds());
+      }
+      if (event.key === COUNTDOWN_STORAGE_KEY) {
+        const nextCountdown = loadCountdownState();
+        setCountdownDurationSec(nextCountdown.durationSec);
+        setCountdownPausedSec(nextCountdown.pausedSec);
+        setCountdownEndAtMs(nextCountdown.endAtMs);
+      }
+      if (event.key === COUNTDOWN_ALARM_STORAGE_KEY) {
+        setIsCountdownAlarmRinging(loadCountdownAlarmRinging());
+      }
     };
 
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
+
+  useEffect(() => {
+    if (!countdownEndAtMs) return;
+    const timer = window.setInterval(() => {
+      setCountdownTick((prev) => prev + 1);
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [countdownEndAtMs]);
+
+  useEffect(() => {
+    if (!countdownEndAtMs || countdownRemainingSec > 0) return;
+    setCountdownEndAtMs(null);
+    setCountdownPausedSec(0);
+    if (!overlayCountdownFinishedRef.current) {
+      overlayCountdownFinishedRef.current = true;
+      void playOverlayCountdownAlarm();
+    }
+  }, [countdownEndAtMs, countdownRemainingSec]);
+
+  useEffect(() => {
+    saveCountdownState({
+      durationSec: countdownDurationSec,
+      pausedSec: countdownPausedSec,
+      endAtMs: countdownEndAtMs,
+    });
+  }, [countdownDurationSec, countdownPausedSec, countdownEndAtMs]);
+
+  useEffect(() => {
+    return () => {
+      stopOverlayCountdownAlarm();
+    };
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const shouldRing = loadCountdownAlarmRinging();
+      if (
+        !shouldRing &&
+        (isCountdownAlarmRinging ||
+          overlayAlarmAudioRef.current !== null ||
+          overlayAlarmCtxRef.current !== null)
+      ) {
+        stopOverlayCountdownAlarm();
+      }
+    }, 300);
+    return () => window.clearInterval(timer);
+  }, [isCountdownAlarmRinging]);
 
   useEffect(() => {
     const onMouseMove = (event: MouseEvent) => {
@@ -1613,6 +1916,132 @@ function OverlayWidget() {
     setFocusStartedAt(null);
     saveTodayFocusSeconds(0);
     saveFocusRuntime({ startedAtMs: null });
+  }
+
+  function addOverlayCountdownPreset(seconds: number) {
+    stopOverlayCountdownAlarm();
+    overlayCountdownFinishedRef.current = false;
+    if (countdownEndAtMs) {
+      const remaining = Math.max(
+        0,
+        Math.ceil((countdownEndAtMs - Date.now()) / 1000),
+      );
+      const nextTotal = remaining + seconds;
+      setCountdownDurationSec(nextTotal);
+      setCountdownPausedSec(nextTotal);
+      setCountdownEndAtMs(Date.now() + nextTotal * 1000);
+      return;
+    }
+    const base = Math.max(0, countdownPausedSec);
+    const nextTotal = base + seconds;
+    setCountdownDurationSec(nextTotal);
+    setCountdownPausedSec(nextTotal);
+    setCountdownEndAtMs(null);
+  }
+
+  function startOverlayCountdownTimer() {
+    stopOverlayCountdownAlarm();
+    overlayCountdownFinishedRef.current = false;
+    if (countdownEndAtMs) return;
+    const baseSec = countdownPausedSec > 0 ? countdownPausedSec : countdownDurationSec;
+    setCountdownPausedSec(baseSec);
+    setCountdownEndAtMs(Date.now() + baseSec * 1000);
+  }
+
+  function pauseOverlayCountdownTimer() {
+    if (!countdownEndAtMs) return;
+    setCountdownPausedSec(countdownRemainingSec);
+    setCountdownEndAtMs(null);
+  }
+
+  function resetOverlayCountdownTimer() {
+    stopOverlayCountdownAlarm();
+    overlayCountdownFinishedRef.current = false;
+    setCountdownEndAtMs(null);
+    setCountdownPausedSec(0);
+    setCountdownDurationSec(0);
+  }
+
+  function stopOverlayCountdownAlarm() {
+    if (overlayAlarmTimeoutRef.current) {
+      window.clearTimeout(overlayAlarmTimeoutRef.current);
+      overlayAlarmTimeoutRef.current = null;
+    }
+    if (overlayAlarmAudioRef.current) {
+      overlayAlarmAudioRef.current.pause();
+      overlayAlarmAudioRef.current.currentTime = 0;
+      overlayAlarmAudioRef.current.onended = null;
+      overlayAlarmAudioRef.current = null;
+    }
+    if (overlayAlarmCtxRef.current) {
+      const ctx = overlayAlarmCtxRef.current;
+      overlayAlarmCtxRef.current = null;
+      void ctx.close();
+    }
+    saveCountdownAlarmRinging(false);
+    setIsCountdownAlarmRinging(false);
+  }
+
+  async function playOverlayCountdownAlarm(): Promise<void> {
+    stopOverlayCountdownAlarm();
+    try {
+      const audio = new Audio("/ocean-meme.mp3");
+      audio.volume = 1;
+      audio.currentTime = 0;
+      audio.onended = () => {
+        if (overlayAlarmAudioRef.current === audio) {
+          overlayAlarmAudioRef.current = null;
+        }
+        saveCountdownAlarmRinging(false);
+        setIsCountdownAlarmRinging(false);
+      };
+      overlayAlarmAudioRef.current = audio;
+      setIsCountdownAlarmRinging(true);
+      saveCountdownAlarmRinging(true);
+      await audio.play();
+      return;
+    } catch {
+      // fallback below
+    }
+
+    const AudioCtx =
+      window.AudioContext ||
+      (window as Window & { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    if (!AudioCtx) {
+      return;
+    }
+
+    const ctx = new AudioCtx();
+    overlayAlarmCtxRef.current = ctx;
+    setIsCountdownAlarmRinging(true);
+    saveCountdownAlarmRinging(true);
+
+    const now = ctx.currentTime;
+    const pulseStarts = [0, 0.22, 0.44];
+    pulseStarts.forEach((offset) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "square";
+      osc.frequency.setValueAtTime(880, now + offset);
+      gain.gain.setValueAtTime(0.0001, now + offset);
+      gain.gain.exponentialRampToValueAtTime(0.45, now + offset + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.16);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now + offset);
+      osc.stop(now + offset + 0.17);
+    });
+
+    overlayAlarmTimeoutRef.current = window.setTimeout(() => {
+      if (overlayAlarmCtxRef.current === ctx) {
+        overlayAlarmCtxRef.current = null;
+        void ctx.close();
+      }
+      overlayAlarmTimeoutRef.current = null;
+      saveCountdownAlarmRinging(false);
+      setIsCountdownAlarmRinging(false);
+    }, 900);
   }
 
   async function hideOverlayFromWidget() {
@@ -1677,6 +2106,66 @@ function OverlayWidget() {
           >
             ↺
           </button>
+        </div>
+        <div className="overlay-countdown">
+          <p className="overlay-countdown-time">
+            {formatDuration(countdownRemainingSec)}
+          </p>
+          <div className="overlay-countdown-presets">
+            {COUNTDOWN_PRESETS.map((preset) => (
+              <button
+                key={preset.seconds}
+                type="button"
+                className={`overlay-mini-btn ${countdownDurationSec === preset.seconds ? "active" : ""}`}
+                onClick={() => addOverlayCountdownPreset(preset.seconds)}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+          <div className="overlay-countdown-controls">
+            {countdownEndAtMs ? (
+              <button
+                type="button"
+                className="overlay-timer-btn"
+                onClick={pauseOverlayCountdownTimer}
+                title="Pause countdown"
+                aria-label="Pause countdown"
+              >
+                ⏸
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="overlay-timer-btn"
+                onClick={startOverlayCountdownTimer}
+                title="Start countdown"
+                aria-label="Start countdown"
+              >
+                ▶
+              </button>
+            )}
+            <button
+              type="button"
+              className="overlay-timer-btn"
+              onClick={resetOverlayCountdownTimer}
+              title="Reset countdown"
+              aria-label="Reset countdown"
+            >
+              ↺
+            </button>
+            {isCountdownAlarmRinging ? (
+              <button
+                type="button"
+                className="overlay-mini-btn"
+                onClick={stopOverlayCountdownAlarm}
+                title="Stop alarm"
+                aria-label="Stop alarm"
+              >
+                Stop
+              </button>
+            ) : null}
+          </div>
         </div>
         <div
           className="overlay-resize-handle"
@@ -1919,41 +2408,72 @@ function saveFocusRuntime(payload: { startedAtMs: number | null }): void {
   );
 }
 
-function loadTodayAppUsage(): AppUsageMap {
-  const raw = localStorage.getItem(APP_USAGE_STORAGE_KEY);
-  if (!raw) {
-    return {};
-  }
+function loadCountdownState(): {
+  durationSec: number;
+  pausedSec: number;
+  endAtMs: number | null;
+} {
+  const fallback = {
+    durationSec: COUNTDOWN_PRESETS[0].seconds,
+    pausedSec: COUNTDOWN_PRESETS[0].seconds,
+    endAtMs: null as number | null,
+  };
+  const raw = localStorage.getItem(COUNTDOWN_STORAGE_KEY);
+  if (!raw) return fallback;
 
   try {
-    const parsed = JSON.parse(raw) as { date?: string; usage?: AppUsageMap };
+    const parsed = JSON.parse(raw) as {
+      date?: string;
+      durationSec?: number;
+      pausedSec?: number;
+      endAtMs?: number | null;
+    };
     if (parsed.date !== dateOnly(new Date())) {
-      return {};
-    }
-    if (!parsed.usage || typeof parsed.usage !== "object") {
-      return {};
+      return fallback;
     }
 
-    const out: AppUsageMap = {};
-    for (const [name, sec] of Object.entries(parsed.usage)) {
-      const n = Number(sec);
-      if (!Number.isFinite(n) || n <= 0) continue;
-      out[String(name)] = Math.floor(n);
-    }
-    return out;
+    const durationSec = Number(parsed.durationSec);
+    const pausedSec = Number(parsed.pausedSec);
+    const endAtMsRaw = Number(parsed.endAtMs);
+
+    return {
+      durationSec: Number.isFinite(durationSec) && durationSec > 0 ? Math.floor(durationSec) : fallback.durationSec,
+      pausedSec: Number.isFinite(pausedSec) && pausedSec >= 0 ? Math.floor(pausedSec) : fallback.pausedSec,
+      endAtMs:
+        Number.isFinite(endAtMsRaw) && endAtMsRaw > 0
+          ? Math.floor(endAtMsRaw)
+          : null,
+    };
   } catch {
-    return {};
+    return fallback;
   }
 }
 
-function saveTodayAppUsage(usage: AppUsageMap): void {
+function saveCountdownState(payload: {
+  durationSec: number;
+  pausedSec: number;
+  endAtMs: number | null;
+}): void {
   localStorage.setItem(
-    APP_USAGE_STORAGE_KEY,
+    COUNTDOWN_STORAGE_KEY,
     JSON.stringify({
       date: dateOnly(new Date()),
-      usage,
+      durationSec: Math.max(1, Math.floor(payload.durationSec)),
+      pausedSec: Math.max(0, Math.floor(payload.pausedSec)),
+      endAtMs:
+        payload.endAtMs && Number.isFinite(payload.endAtMs)
+          ? Math.max(1, Math.floor(payload.endAtMs))
+          : null,
     }),
   );
+}
+
+function loadCountdownAlarmRinging(): boolean {
+  return localStorage.getItem(COUNTDOWN_ALARM_STORAGE_KEY) === "1";
+}
+
+function saveCountdownAlarmRinging(ringing: boolean): void {
+  localStorage.setItem(COUNTDOWN_ALARM_STORAGE_KEY, ringing ? "1" : "0");
 }
 
 function formatDuration(totalSeconds: number): string {
@@ -1962,32 +2482,6 @@ function formatDuration(totalSeconds: number): string {
   const minutes = Math.floor((safe % 3600) / 60);
   const seconds = safe % 60;
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-}
-
-function formatUsageMinutes(totalSeconds: number): string {
-  const sec = Math.max(0, Math.floor(totalSeconds));
-  const minutes = Math.max(1, Math.floor(sec / 60));
-  return `${minutes}m`;
-}
-
-function getAppLogo(appName: string): string {
-  const n = appName.toLowerCase();
-  if (n.includes("chrome")) return "🌐";
-  if (n.includes("edge")) return "🌀";
-  if (n.includes("code") || n.includes("vscode")) return "🧩";
-  if (n.includes("excel")) return "📗";
-  if (n.includes("word")) return "📘";
-  if (n.includes("powerpoint") || n.includes("ppt")) return "📙";
-  if (n.includes("notion")) return "📝";
-  if (n.includes("figma")) return "🎨";
-  if (n.includes("slack")) return "💬";
-  if (n.includes("discord")) return "🎧";
-  if (n.includes("spotify")) return "🎵";
-  if (n.includes("zoom")) return "📹";
-  if (n.includes("teams")) return "👥";
-  if (n.includes("powershell") || n.includes("terminal") || n.includes("cmd")) return "⌨️";
-  if (n.includes("explorer")) return "📁";
-  return "⬢";
 }
 
 export default App;

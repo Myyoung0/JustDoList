@@ -12,7 +12,6 @@ const BLOCK_SUBJECT_KEYWORDS = ['(광고)', '광고'];
 const MAIL_LOOKBACK_DAYS = 7;
 const GCAL_REDIRECT_PORT = 42813;
 const GCAL_REDIRECT_URI = `http://127.0.0.1:${GCAL_REDIRECT_PORT}/oauth2callback`;
-const appIconCache = new Map();
 let mainWindow = null;
 let overlayWindow = null;
 let overlayHotspotTimer = null;
@@ -743,7 +742,7 @@ function createOverlayWindow() {
   overlayWindow = new BrowserWindow({
     title: ' ',
     width: 340,
-    height: 190,
+    height: 260,
     x: 30,
     y: 30,
     frame: false,
@@ -753,11 +752,12 @@ function createOverlayWindow() {
     skipTaskbar: true,
     resizable: false,
     thickFrame: false,
-    minWidth: 160,
-    minHeight: 110,
+    minWidth: 300,
+    minHeight: 200,
     movable: true,
     // Keep overlay interactive so in-widget controls always work.
     focusable: true,
+    roundedCorners: false,
     hasShadow: false,
     autoHideMenuBar: true,
     webPreferences: {
@@ -820,50 +820,6 @@ function getOverlayState() {
   };
 }
 
-async function getFileIconDataUrl(filePath) {
-  const key = String(filePath || '').trim().toLowerCase();
-  if (!key) return '';
-  if (appIconCache.has(key)) {
-    return appIconCache.get(key);
-  }
-
-  try {
-    const icon = await app.getFileIcon(filePath, { size: 'small' });
-    if (icon && !icon.isEmpty()) {
-      const dataUrl = icon.toDataURL();
-      appIconCache.set(key, dataUrl);
-      return dataUrl;
-    }
-  } catch {
-    // noop
-  }
-
-  appIconCache.set(key, '');
-  return '';
-}
-
-async function getActiveAppSample() {
-  try {
-    const mod = await import('active-win');
-    const activeWin = mod.default;
-    const info = await activeWin();
-    if (!info) {
-      return { app: 'Unknown', owner: '', title: '', exePath: '', iconDataUrl: '' };
-    }
-    const exePath = String(info.owner?.path || '');
-    const iconDataUrl = await getFileIconDataUrl(exePath);
-    return {
-      app: String(info.owner?.name || info.owner?.bundleId || 'Unknown'),
-      owner: String(info.owner?.name || ''),
-      title: String(info.title || ''),
-      exePath,
-      iconDataUrl
-    };
-  } catch {
-    return { app: 'Unavailable', owner: '', title: '', exePath: '', iconDataUrl: '' };
-  }
-}
-
 ipcMain.handle('mail:get-config', async () => readStoredConfigForRenderer());
 ipcMain.handle('mail:save-config', async (_event, config) => writeStoredConfig(config));
 ipcMain.handle('mail:fetch-unread', async () => fetchUnreadMails());
@@ -883,7 +839,6 @@ ipcMain.handle('mail:notify', async (_event, payload) => {
   notification.show();
   return true;
 });
-ipcMain.handle('usage:get-active-app', async () => getActiveAppSample());
 ipcMain.handle('overlay:show', async () => {
   setOverlayVisible(true);
   return getOverlayState();
@@ -903,8 +858,8 @@ ipcMain.handle('overlay:resize', async (_event, payload) => {
   const win = createOverlayWindow();
   const rawW = Number(payload?.width);
   const rawH = Number(payload?.height);
-  const width = Number.isFinite(rawW) ? Math.max(160, Math.min(1400, Math.floor(rawW))) : 340;
-  const height = Number.isFinite(rawH) ? Math.max(110, Math.min(1000, Math.floor(rawH))) : 190;
+  const width = Number.isFinite(rawW) ? Math.max(300, Math.min(1400, Math.floor(rawW))) : 340;
+  const height = Number.isFinite(rawH) ? Math.max(200, Math.min(1000, Math.floor(rawH))) : 260;
   win.setSize(width, height, true);
   return { ok: true, width, height };
 });

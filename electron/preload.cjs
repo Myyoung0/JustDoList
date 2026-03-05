@@ -18,10 +18,6 @@ contextBridge.exposeInMainWorld('gcalBridge', {
   deleteEvent: (payload) => ipcRenderer.invoke('gcal:delete-event', payload)
 });
 
-contextBridge.exposeInMainWorld('usageBridge', {
-  getActiveApp: () => ipcRenderer.invoke('usage:get-active-app')
-});
-
 contextBridge.exposeInMainWorld('overlayBridge', {
   show: () => ipcRenderer.invoke('overlay:show'),
   hide: () => ipcRenderer.invoke('overlay:hide'),
