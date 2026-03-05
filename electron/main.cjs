@@ -756,7 +756,8 @@ function createOverlayWindow() {
     minWidth: 160,
     minHeight: 110,
     movable: true,
-    focusable: false,
+    // Keep overlay interactive so in-widget controls always work.
+    focusable: true,
     hasShadow: false,
     autoHideMenuBar: true,
     webPreferences: {
@@ -766,8 +767,10 @@ function createOverlayWindow() {
     }
   });
   overlayWindow.setOpacity(1);
-  overlayWindow._mycalClickThrough = true;
-  overlayWindow._mycalIgnoreApplied = true;
+  // Default to non-click-through. Previous click-through mode caused
+  // control buttons to become unclickable depending on host environment.
+  overlayWindow._mycalClickThrough = false;
+  overlayWindow._mycalIgnoreApplied = false;
 
   const devServerUrl = process.env.VITE_DEV_SERVER_URL;
   if (devServerUrl) {
@@ -797,10 +800,9 @@ function createOverlayWindow() {
 function setOverlayVisible(visible) {
   const win = createOverlayWindow();
   if (visible) {
-    win._mycalClickThrough = true;
-    win.setIgnoreMouseEvents(true, { forward: true });
-    win._mycalIgnoreApplied = true;
-    startOverlayHotspotLoop();
+    win.setIgnoreMouseEvents(false);
+    win._mycalIgnoreApplied = false;
+    stopOverlayHotspotLoop();
     win.showInactive();
   } else {
     stopOverlayHotspotLoop();

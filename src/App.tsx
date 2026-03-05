@@ -210,8 +210,11 @@ function App() {
       : 0);
 
   useEffect(() => {
-    saveTodayFocusSeconds(focusElapsedSec);
-  }, [focusElapsedSec]);
+    // Persist only paused/accumulated seconds.
+    // If we persist running elapsed time while startedAt is also kept,
+    // overlay/main can add elapsed twice after sync/reload.
+    saveTodayFocusSeconds(focusAccumulatedSec);
+  }, [focusAccumulatedSec]);
 
   useEffect(() => {
     saveTodayAppUsage(appUsageByName);
