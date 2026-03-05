@@ -732,10 +732,9 @@ function App() {
   async function playCountdownAlarm(): Promise<void> {
     stopCountdownAlarm();
 
-    // Uses /ocean-meme.mp3 when present in the app root/public path.
-    // Falls back to a short synthesized beep sequence.
+    // Prefer bundled audio; fallback to synthesized beeps if load/play fails.
     try {
-      const audio = new Audio("/ocean-meme.mp3");
+      const audio = new Audio(getAlarmAudioSrc());
       audio.volume = 1;
       audio.currentTime = 0;
       audio.onended = () => {
@@ -1985,7 +1984,7 @@ function OverlayWidget() {
   async function playOverlayCountdownAlarm(): Promise<void> {
     stopOverlayCountdownAlarm();
     try {
-      const audio = new Audio("/ocean-meme.mp3");
+      const audio = new Audio(getAlarmAudioSrc());
       audio.volume = 1;
       audio.currentTime = 0;
       audio.onended = () => {
@@ -2474,6 +2473,14 @@ function loadCountdownAlarmRinging(): boolean {
 
 function saveCountdownAlarmRinging(ringing: boolean): void {
   localStorage.setItem(COUNTDOWN_ALARM_STORAGE_KEY, ringing ? "1" : "0");
+}
+
+function getAlarmAudioSrc(): string {
+  if (typeof window !== "undefined" && window.location.protocol === "file:") {
+    // In packaged Electron app, absolute /path points to drive root and fails.
+    return "./ocean-meme.mp3";
+  }
+  return "/ocean-meme.mp3";
 }
 
 function formatDuration(totalSeconds: number): string {

@@ -742,7 +742,7 @@ function createOverlayWindow() {
   overlayWindow = new BrowserWindow({
     title: ' ',
     width: 340,
-    height: 260,
+    height: 190,
     x: 30,
     y: 30,
     frame: false,
@@ -753,7 +753,7 @@ function createOverlayWindow() {
     resizable: false,
     thickFrame: false,
     minWidth: 300,
-    minHeight: 200,
+    minHeight: 140,
     movable: true,
     // Keep overlay interactive so in-widget controls always work.
     focusable: true,
@@ -859,7 +859,7 @@ ipcMain.handle('overlay:resize', async (_event, payload) => {
   const rawW = Number(payload?.width);
   const rawH = Number(payload?.height);
   const width = Number.isFinite(rawW) ? Math.max(300, Math.min(1400, Math.floor(rawW))) : 340;
-  const height = Number.isFinite(rawH) ? Math.max(200, Math.min(1000, Math.floor(rawH))) : 260;
+  const height = Number.isFinite(rawH) ? Math.max(140, Math.min(1000, Math.floor(rawH))) : 190;
   win.setSize(width, height, true);
   return { ok: true, width, height };
 });
